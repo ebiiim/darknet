@@ -23,8 +23,23 @@ int check_mistakes = 0;
 
 static int coco_ids[] = { 1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,22,23,24,25,27,28,31,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,67,70,72,73,74,75,76,77,78,79,80,81,82,84,85,86,87,88,89,90 };
 
+#include <signal.h>
+volatile sig_atomic_t received_sigterm = 0;
+void signal_handler(int signum) {
+    fprintf(stderr, "Signal received: %d\n", signum);
+    received_sigterm = 1;
+}
+
 void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear, int dont_show, int calc_map, float thresh, float iou_thresh, int mjpeg_port, int show_imgs, int benchmark_layers, char* chart_path)
 {
+
+    if (signal(SIGINT, signal_handler) == SIG_ERR) {
+        fprintf(stderr, "Could not register signal handler\n");
+        return;
+    }
+    fprintf(stderr, "Registered signal handler\n");
+
+
     list *options = read_data_cfg(datacfg);
     char *train_images = option_find_str(options, "train", "data/train.txt");
     char *valid_images = option_find_str(options, "valid", train_images);
@@ -382,6 +397,21 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
 
         //if (i % 1000 == 0 || (i < 1000 && i % 100 == 0)) {
         //if (i % 100 == 0) {
+
+        if (received_sigterm != 0)
+        {
+            iter_save = iteration;
+#ifdef GPU
+            if (ngpus != 1) sync_nets(nets, ngpus, 0);
+#endif
+            char buff[256];
+            sprintf(buff, "%s/%s_-save-%d.weights", backup_directory, base, iteration);
+            save_weights(net, buff);
+            fprintf(stderr, "Exit\n");
+            return;
+        }
+
+
         if ((iteration >= (iter_save + 10000) || iteration % 10000 == 0) ||
             (iteration >= (iter_save + 1000) || iteration % 1000 == 0) && net.max_batches < 10000)
         {
